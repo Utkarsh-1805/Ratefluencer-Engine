@@ -25,12 +25,17 @@ Thumbs.db
 prep_out.txt
 test_out.txt
 
-# Data/model artifacts (live in the sibling ratefluencer-copilot/proj; regenerable)
+# Data/model artifacts (regenerable). The ML layer is vendored at proj/ — we keep
+# its source + the trained model (proj/models_store/true_impact.pkl) but NOT the
+# data it builds (rebuilt by `python models/prepare_demo.py`).
 data/*.db
 data/*.db-*
 data/vector/
 data/synthetic/
 data/seed/
+proj/data/
+proj/models_store/growth.pkl
+proj/**/__pycache__/
 
 # Frontend (React/Vite) — deps + build output are regenerable
 web/node_modules/

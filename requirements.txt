@@ -1,10 +1,16 @@
 streamlit>=1.35.0
 plotly>=5.20.0
 pandas>=2.0.0
+pyarrow>=14.0.0
 lightgbm>=4.3.0
 scikit-learn>=1.4.0
 shap>=0.45.0
 sentence-transformers>=3.0.0
 faiss-cpu>=1.8.0
 numpy>=1.26.0
+pydantic>=2.5.0
 anthropic>=0.28.0
+
+# React UI bridge (api.py)
+fastapi>=0.110.0
+uvicorn>=0.29.0

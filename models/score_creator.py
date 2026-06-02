@@ -34,15 +34,27 @@ from pathlib import Path
 # ─────────────────────────────────────────────────────────────────────────────
 # 1) Locate the ML repo and put it on sys.path
 # ─────────────────────────────────────────────────────────────────────────────
-# This file:  .../Ratefluencer-Engine-main/models/score_creator.py
-# ML proj:    .../ratefluencer-copilot/proj
-_ENGINE_ROOT = Path(__file__).resolve().parents[1]          # Ratefluencer-Engine-main
-_WORKSPACE   = _ENGINE_ROOT.parent                          # d:\ratefluencer
-# Allow an env override; otherwise use the conventional sibling layout.
-_PROJ = Path(os.environ.get(
-    "RATEFLUENCER_PROJ",
-    _WORKSPACE / "ratefluencer-copilot" / "proj",
-))
+# This file:  .../Ratefluencer-Engine/models/score_creator.py
+_ENGINE_ROOT = Path(__file__).resolve().parents[1]          # repo root
+_WORKSPACE   = _ENGINE_ROOT.parent
+
+# Locate the ML layer, in priority order, so a fresh clone runs with no setup:
+#   1. RATEFLUENCER_PROJ env override (point it anywhere)
+#   2. vendored in-repo at <repo>/proj            ← present in a fresh clone
+#   3. sibling repo layout <workspace>/ratefluencer-copilot/proj  (dev machines)
+def _find_proj() -> Path:
+    candidates = []
+    env = os.environ.get("RATEFLUENCER_PROJ")
+    if env:
+        candidates.append(Path(env))
+    candidates.append(_ENGINE_ROOT / "proj")
+    candidates.append(_WORKSPACE / "ratefluencer-copilot" / "proj")
+    for c in candidates:
+        if (c / "config.py").exists():
+            return c
+    return candidates[0]   # fall back to the first, for a clear "not found" message
+
+_PROJ = _find_proj()
 
 ML_AVAILABLE = (_PROJ / "config.py").exists()
 if ML_AVAILABLE and str(_PROJ) not in sys.path:

@@ -12,6 +12,8 @@
 ![FAISS](https://img.shields.io/badge/FAISS-vector_search-0467DF)
 ![SHAP](https://img.shields.io/badge/SHAP-explainability-8A2BE2)
 ![Streamlit](https://img.shields.io/badge/Streamlit-UI-FF4B4B?logo=streamlit&logoColor=white)
+![React](https://img.shields.io/badge/React-Vite_web_UI-61DAFB?logo=react&logoColor=black)
+![FastAPI](https://img.shields.io/badge/FastAPI-bridge-009688?logo=fastapi&logoColor=white)
 ![Offline](https://img.shields.io/badge/runs-100%25_offline-34D399)
 
 **Type a campaign brief in plain English → get a fraud-adjusted, ROI-ranked,
@@ -85,9 +87,27 @@ py -m pip install -r requirements.txt
 #     Reuses the trained model — does NOT retrain.
 py models/prepare_demo.py
 
-# 3 · launch
+# 3 · launch the Streamlit app
 py -m streamlit run app.py
 ```
+
+### 🌐 Prefer the polished React UI?
+
+The same pipeline is also served behind a thin **FastAPI bridge** (`api.py`), so a
+React + Vite single-page app can drive it. Run two terminals:
+
+```powershell
+# terminal 1 · serve the models over HTTP
+py -m uvicorn api:app --port 8000
+
+# terminal 2 · run the React frontend (proxies /api → 127.0.0.1:8000)
+cd web
+npm install
+npm run dev          # → http://localhost:5173
+```
+
+> The React UI is fully **responsive** (tablet + mobile) and shares the same five
+> screens — brief → working → shortlist (the reveal) → creator detail → recommendation.
 
 ✅ Runs **100% offline** from seeded data — no API key required.
 🔑 *Optional:* add `GEMINI_API_KEY` to a `.env` file (see `.env.example`) for
@@ -133,6 +153,9 @@ reproducible (global seed = 42).
 
 This repo (**Engine** — agent + UI) connects to the sibling **Data + ML** repo
 (`ratefluencer-copilot/proj`) through a single bridge: `models/score_creator.py`.
+It ships **two front-ends** over the *same* pipeline — a Streamlit app (`app.py`)
+and a responsive React/Vite SPA (`web/`) that calls it through a thin FastAPI
+bridge (`api.py`).
 
 ---
 
@@ -174,8 +197,10 @@ outcome labels — because no one publishes conversion data."***
 ```
 Ratefluencer-Engine-main/
 ├── app.py                # Streamlit entry point + design system
+├── api.py                # FastAPI bridge — serves the pipeline to the React UI
 ├── ui/                   # 5 screens: brief → working → shortlist → detail → export
 │                         #   + real_screener.py (real-account fraud screen)
+├── web/                  # React + Vite SPA — same 5 screens, responsive (calls api.py)
 ├── agent/                # orchestrator · brief_parser · retriever · ranker · composer
 ├── models/               # ⭐ ML BRIDGE: score_creator · prepare_demo · screen_real
 ├── utils/                # session · env loader · ui_kit · ranking

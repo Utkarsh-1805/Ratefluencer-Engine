@@ -1,0 +1,16 @@
+[theme]
+base = "dark"
+primaryColor = "#6366F1"
+backgroundColor = "#0A0B0D"
+secondaryBackgroundColor = "#131519"
+textColor = "#F4F5F7"
+
+[server]
+# Watcher OFF: it tries to walk the `transformers` library and spams torchvision
+# tracebacks (we only use text embeddings; torchvision isn't needed). No hot-reload
+# during a demo is fine — just restart the app after code edits.
+fileWatcherType = "none"
+runOnSave = false
+
+[logger]
+level = "error"   # quiet the transformers __path__ warnings

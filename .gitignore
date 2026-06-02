@@ -1,0 +1,38 @@
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local outputs
+*.log
+*_out.txt
+prep_out.txt
+test_out.txt
+
+# Data/model artifacts (live in the sibling ratefluencer-copilot/proj; regenerable)
+data/*.db
+data/*.db-*
+data/vector/
+data/synthetic/
+data/seed/
+
+# Documentation — only README.md is published
+ARCHITECTURE.md
+INTEGRATION.md
+TEST_GUIDE.md

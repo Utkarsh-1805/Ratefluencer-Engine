@@ -87,3 +87,9 @@ def render_brief_composer():
         p = parse_brief(brief_text, st.session_state.brief["budget"], st.session_state.brief["goal"])
         apply_parsed_brief(p)
         go_to("working")
+
+    # ---- secondary: screen a real account (real-data fraud demo) ----
+    st.markdown('<div style="height:.5rem"></div>', unsafe_allow_html=True)
+    if st.button("🔍  Screen a real Instagram account for fake followers",
+                 use_container_width=True):
+        go_to("screen")

@@ -1,9 +1,14 @@
+# Load .env (GEMINI_API_KEY etc.) FIRST, before anything reads the environment.
+from utils.env import load_env
+load_env()
+
 import streamlit as st
 from ui.brief_composer import render_brief_composer
 from ui.agent_working import render_agent_working
 from ui.ranked_shortlist import render_ranked_shortlist
 from ui.creator_detail import render_creator_detail
 from ui.recommendation import render_recommendation
+from ui.real_screener import render_real_screener
 from utils.session import init_session
 import base64
 from pathlib import Path
@@ -422,3 +427,5 @@ elif stage == "detail":
     render_creator_detail()
 elif stage == "export":
     render_recommendation()
+elif stage == "screen":
+    render_real_screener()

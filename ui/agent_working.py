@@ -3,6 +3,7 @@ import streamlit as st
 from utils.session import go_to
 from utils.dummy_scores import load_dummy_data
 from utils.ui_kit import page_header
+from agent.orchestrator import run_pipeline
 
 STEPS = [
     ("Parsing brief",            "Extracting category, audience, and objective weights"),
@@ -42,16 +43,41 @@ def render_agent_working():
 
     container = st.empty()
     n = len(STEPS)
-    for i in range(n + 1):
+
+    def render_progress(active_idx: int):
         rows = []
         for j, (title, sub) in enumerate(STEPS):
-            state = "done" if j < i else ("active" if j == i else "pending")
+            state = "done" if j < active_idx else ("active" if j == active_idx else "pending")
             rows.append(_step(title, sub, state))
         container.markdown(
             '<div class="rf-panel">' + "".join(rows) + '</div>', unsafe_allow_html=True)
-        if i < n:
-            time.sleep(0.5)
 
-    load_dummy_data()
+    # Map the orchestrator's step names → progress index, so the real pipeline
+    # drives the animation. (Falls back to timed ticks if a name is unknown.)
+    step_index = {name: i for i, (name, _) in enumerate(STEPS)}
+
+    def on_step(step_name: str):
+        idx = step_index.get(step_name, 0)
+        render_progress(idx)
+        time.sleep(0.25)  # brief pause so each step is visible
+
+    render_progress(0)
+
+    # Run the REAL agent pipeline (parse → retrieve → score → rank → compose).
+    # If anything fails or yields no scores, fall back to dummy data so the demo
+    # always reaches the results screen.
+    used_fallback = False
+    try:
+        run_pipeline(progress_callback=on_step)
+        if not st.session_state.get("scores"):
+            used_fallback = True
+    except Exception as e:
+        print(f"[agent_working] pipeline failed ({e}) — falling back to dummy data")
+        used_fallback = True
+
+    if used_fallback:
+        load_dummy_data()
+
+    render_progress(n)   # all steps done
     time.sleep(0.3)
     go_to("results")

@@ -1,5 +1,5 @@
 /* ============ Screens: Ranked Shortlist · Creator Detail · Recommendation ============ */
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   composite, roiScore, bandColor, fmtFollowers, fmtINR, fmtBigINR, compact,
   Avatar, StatusPill, ScoreBar, ScoreChip, ScoreTile, MiniBar, Stat, FLAG_LABELS,
@@ -13,13 +13,23 @@ const WEIGHT_DEFS = [
 ]
 
 /* ---------------- Screen 3: Ranked Shortlist ---------------- */
+const DEMO_BUDGET = 300000   // ₹3,00,000 — the brief's budget, for the counterfactual cost
+
 export function Shortlist({ creators, weights, setWeights, onOpen, onRecommend }) {
+  // The counterfactual: 'impact' = fraud-adjusted True-Impact ranking (flagged sunk to bottom);
+  // 'followers' = naive reach ranking (flagged NOT sunk — so the fraud account rises to #1).
+  const [rankMode, setRankMode] = useState("impact")
+
   const ranked = useMemo(() => {
     const scored = creators.map((c) => ({ ...c, _score: composite(c, weights) }))
+    if (rankMode === "followers") {
+      // rank purely by follower count — fraud is no longer guard-railed to the bottom
+      return [...scored].sort((a, b) => b.followers - a.followers)
+    }
     const live = scored.filter((c) => c.status !== "flagged" && c.status !== "excluded").sort((a, b) => b._score - a._score)
     const sunk = scored.filter((c) => c.status === "flagged" || c.status === "excluded").sort((a, b) => b._score - a._score)
     return [...live, ...sunk]
-  }, [creators, weights])
+  }, [creators, weights, rankMode])
 
   const featured = ranked[0]
   const rest = ranked.slice(1)
@@ -32,15 +42,31 @@ export function Shortlist({ creators, weights, setWeights, onOpen, onRecommend }
 
   const famous = creators.find((c) => c.handle === "famous.face")
 
+  // Counterfactual cost: if budget were split ∝ followers across the top 5,
+  // how much would land on the flagged (bot) #1 account?
+  const top5 = ranked.slice(0, 5)
+  const sumFollowers = top5.reduce((s, c) => s + c.followers, 0) || 1
+  const wastedOnFraud = famous ? (famous.followers / sumFollowers) * DEMO_BUDGET : 0
+  const wastedPct = famous ? (famous.followers / sumFollowers) * 100 : 0
+  const famousRank = famous ? ranked.findIndex((c) => c.handle === "famous.face") + 1 : 0
+
   return (
     <div className="screen app-shell" style={{ paddingTop: 34, paddingBottom: 80 }}>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: 16, marginBottom: 22 }}>
         <div>
           <div className="eyebrow" style={{ marginBottom: 10 }}>Ranked shortlist</div>
-          <h1 style={{ fontSize: 34, letterSpacing: "-0.03em" }}>Creators ranked by predicted impact</h1>
+          <h1 style={{ fontSize: 34, letterSpacing: "-0.03em" }}>
+            {rankMode === "followers" ? "Creators ranked by follower count" : "Creators ranked by predicted impact"}
+          </h1>
           <p className="muted" style={{ marginTop: 8, fontSize: 14.5 }}>Skincare · Women 22–35 · India · ₹3,00,000 · drive online sales</p>
         </div>
-        <button className="btn btn-primary" onClick={onRecommend}>View recommendation →</button>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12 }}>
+          <div className="seg" role="tablist" aria-label="Ranking mode">
+            <button className={`seg-btn ${rankMode === "impact" ? "on" : ""}`} onClick={() => setRankMode("impact")}>True-Impact</button>
+            <button className={`seg-btn ${rankMode === "followers" ? "on danger" : ""}`} onClick={() => setRankMode("followers")}>Follower count</button>
+          </div>
+          <button className="btn btn-primary" onClick={onRecommend}>View recommendation →</button>
+        </div>
       </div>
 
       <div className="r-grid-4" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 18 }}>
@@ -50,7 +76,7 @@ export function Shortlist({ creators, weights, setWeights, onOpen, onRecommend }
         <Stat label="Shortlist" value={`${recommended.length} · ${flagged.length}`} sub={`${recommended.length} recommended · ${flagged.length} flagged`} icon="≡" />
       </div>
 
-      {famous && (famous.status === "flagged") && (
+      {famous && famous.status === "flagged" && rankMode === "impact" && (
         <div className="reveal-banner" style={{ marginBottom: 22 }} onClick={() => onOpen(famous.influencer_id)}>
           <span style={{ fontSize: 20 }}>⚡</span>
           <div style={{ flex: 1 }}>
@@ -58,6 +84,21 @@ export function Shortlist({ creators, weights, setWeights, onOpen, onRecommend }
             <div className="muted" style={{ fontSize: 12.5 }}>True-Impact {famous.impact}/100 · ~{Math.round(famous.authenticity_detail.bot_follower_pct)}% bot audience. Reach is not impact.</div>
           </div>
           <span className="btn btn-ghost" style={{ borderColor: "rgba(248,113,113,0.4)", color: "var(--bad)", padding: "8px 14px" }}>Open report →</span>
+        </div>
+      )}
+
+      {famous && rankMode === "followers" && (
+        <div className="reveal-banner" style={{ marginBottom: 22 }} onClick={() => onOpen(famous.influencer_id)}>
+          <span style={{ fontSize: 20 }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, fontSize: 14.5, color: "var(--bad)" }}>
+              Ranking by reach alone — fraud ignored. @{famous.handle} ({fmtFollowers(famous.followers)}{famous.verified ? ", verified" : ""}) is now #{famousRank}.
+            </div>
+            <div className="muted" style={{ fontSize: 12.5 }}>
+              ~{Math.round(famous.authenticity_detail.bot_follower_pct)}% bot audience · True-Impact {famous.impact}/100. Allocating budget by followers would send <b style={{ color: "var(--bad)" }}>{fmtBigINR(wastedOnFraud)}</b> (~{Math.round(wastedPct)}% of spend) to a fake audience.
+            </div>
+          </div>
+          <span className="btn btn-ghost" style={{ borderColor: "rgba(248,113,113,0.4)", color: "var(--bad)", padding: "8px 14px" }}>See the fraud →</span>
         </div>
       )}
 
@@ -97,9 +138,10 @@ export function Shortlist({ creators, weights, setWeights, onOpen, onRecommend }
 }
 
 function FeaturedCard({ c, onOpen }) {
+  const danger = c.status === "flagged"   // the #1 pick is fraud (followers-ranking counterfactual)
   return (
-    <div className="card" style={{ position: "relative", overflow: "hidden", borderColor: "rgba(99,102,241,0.45)", cursor: "pointer", padding: 0 }} onClick={() => onOpen(c.influencer_id)}>
-      <div className="hero-glow" style={{ animation: "glowPulse 4s ease-in-out infinite" }}></div>
+    <div className="card" style={{ position: "relative", overflow: "hidden", borderColor: danger ? "rgba(248,113,113,0.5)" : "rgba(99,102,241,0.45)", cursor: "pointer", padding: 0 }} onClick={() => onOpen(c.influencer_id)}>
+      <div className="hero-glow" style={{ animation: "glowPulse 4s ease-in-out infinite", background: danger ? "radial-gradient(120% 120% at 18% 0%, rgba(248,113,113,0.28), transparent 55%)" : undefined }}></div>
       <div style={{ position: "relative", padding: 26 }}>
         <div className="r-card-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
           <div className="r-id" style={{ display: "flex", gap: 16, alignItems: "center" }}>
@@ -107,7 +149,7 @@ function FeaturedCard({ c, onOpen }) {
             <div style={{ minWidth: 0 }}>
               <div className="r-id-line" style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span className="r-handle" style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 22, letterSpacing: "-0.02em" }}>@{c.handle}</span>
-                <span className="pill pill-accent">#1 · {Math.round(c._score)}</span>
+                <span className={danger ? "pill pill-bad" : "pill pill-accent"}>#1 · {Math.round(c._score)}</span>
               </div>
               <div className="muted" style={{ fontSize: 13.5, marginTop: 3 }}>
                 <span className="mono">{fmtFollowers(c.followers)}</span> followers · {c.content_category} · {c.region}

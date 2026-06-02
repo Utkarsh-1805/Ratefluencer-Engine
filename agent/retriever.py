@@ -100,7 +100,18 @@ def get_candidates(parsed_brief: dict, db_path: str | None = None) -> list[str]:
     Returns:
         List of influencer_ids (up to TOP_K), ordered by semantic relevance.
     """
-    # Try FAISS first
+    # Try the ML layer's own vector store first (FAISS over MiniLM embeddings,
+    # built by the Data+ML pipeline). This is the real retrieval path.
+    try:
+        from models.score_creator import get_candidates_real
+        ids = get_candidates_real(parsed_brief, top_k=TOP_K)
+        if ids:
+            print(f"[retriever] ML vector store returned {len(ids)} candidates")
+            return ids
+    except Exception as e:
+        print(f"[retriever] ML retrieval unavailable ({e})")
+
+    # Then this repo's own FAISS index (if Person B built one separately)
     try:
         embedding = _embed_brief(parsed_brief)
         ids = _faiss_search(embedding)

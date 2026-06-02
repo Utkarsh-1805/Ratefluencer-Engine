@@ -7,7 +7,8 @@ Falls back to a template if the API is unavailable.
 
 import os
 import re
-import anthropic
+# NOTE: `anthropic` is imported lazily inside compose_recommendation() so the app
+# runs fully offline (template fallback) when the package/key isn't present.
 
 
 def _template_fallback(brief: dict, ranked: list, scores: dict) -> dict:
@@ -71,47 +72,19 @@ def _one_line_rationale(score: dict) -> str:
     return f"Impact {score['impact']} · Authenticity {score['authenticity']}"
 
 
-def compose_recommendation(brief: dict, ranked: list, scores: dict) -> dict:
-    """
-    Compose the final recommendation narrative using Claude.
-
-    Args:
-        brief:  Parsed brief dict (from parse_brief)
-        ranked: Ordered influencer_ids (from rank_candidates)
-        scores: Full score dict keyed by influencer_id
-
-    Returns:
-        dict with summary, projected_reach, projected_conversions,
-              projected_roi, budget_split
-    """
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-
-    # Always compute template first (used for structured fields)
-    template = _template_fallback(brief, ranked, scores)
-
-    if not api_key:
-        print("[composer] No API key — using template fallback")
-        return template
-
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-
-        # Build a tight context for the LLM
-        recommended = [iid for iid in ranked if scores[iid].get("status") == "recommended"][:3]
-        flagged     = [iid for iid in ranked if scores[iid].get("status") == "flagged"]
-
-        creator_lines = "\n".join(
-            f"- {scores[iid]['handle']} ({scores[iid]['followers']:,} followers): "
-            f"Impact {scores[iid]['impact']}, Authenticity {scores[iid]['authenticity']}, "
-            f"ROI {scores[iid]['predicted_roi']:.1f}×, Status: {scores[iid]['status']}"
-            for iid in ranked[:6]
-        )
-
-        prompt = f"""Write a 3-sentence campaign recommendation for a brand marketer.
+def _build_prompt(brief: dict, ranked: list, scores: dict) -> str:
+    """Tight LLM context shared by all providers."""
+    creator_lines = "\n".join(
+        f"- {scores[iid]['handle']} ({scores[iid]['followers']:,} followers): "
+        f"Impact {scores[iid]['impact']}, Authenticity {scores[iid]['authenticity']}, "
+        f"ROI {scores[iid]['predicted_roi']:.1f}×, Status: {scores[iid]['status']}"
+        for iid in ranked[:6]
+    )
+    return f"""Write a 3-sentence campaign recommendation for a brand marketer.
 
 Brief: {brief.get('raw', brief.get('category', ''))}
 Goal: {brief.get('goal')} | Budget: ₹{brief.get('budget', 0):,}
-Target: {brief.get('target_audience', {})}
+Target: {brief.get('target_audience', brief.get('audience', {}))}
 
 Creator scores:
 {creator_lines}
@@ -123,20 +96,74 @@ Rules:
 - Plain English, confident, no jargon
 - 3 sentences max"""
 
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=300,
+
+def _gemini_summary(prompt: str, api_key: str) -> str | None:
+    """Generate the summary with Gemini. Returns None on any failure."""
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        # gemini-2.5-flash is the model with free-tier quota (2.0-flash is 0/0).
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash", contents=prompt,
+        )
+        return (resp.text or "").strip() or None
+    except Exception as e:
+        print(f"[composer] Gemini failed ({e})")
+        return None
+
+
+def _claude_summary(prompt: str, api_key: str) -> str | None:
+    """Generate the summary with Claude. Returns None on any failure."""
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-sonnet-4-20250514", max_tokens=300,
             messages=[{"role": "user", "content": prompt}],
         )
-
-        summary = message.content[0].text.strip()
-        template["summary"] = summary
-        template["composed_by"] = "claude"
-        return template
-
+        return msg.content[0].text.strip() or None
     except Exception as e:
-        print(f"[composer] LLM failed ({e}) — using template")
+        print(f"[composer] Claude failed ({e})")
+        return None
+
+
+def compose_recommendation(brief: dict, ranked: list, scores: dict) -> dict:
+    """
+    Compose the final recommendation narrative with an LLM, falling back cleanly.
+
+    Provider order: Gemini (GEMINI_API_KEY) → Claude (ANTHROPIC_API_KEY) →
+    deterministic offline template. The structured numeric fields always come
+    from the template; the LLM only rewrites the `summary` prose.
+
+    Keys are read from environment variables ONLY — never hard-coded.
+    """
+    # Structured fields (reach/conversions/roi/budget) always from the template.
+    template = _template_fallback(brief, ranked, scores)
+
+    gemini_key = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
+    claude_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not gemini_key and not claude_key:
+        print("[composer] No LLM key — using template fallback")
         return template
+
+    prompt = _build_prompt(brief, ranked, scores)
+
+    if gemini_key:
+        summary = _gemini_summary(prompt, gemini_key)
+        if summary:
+            template["summary"] = summary
+            template["composed_by"] = "gemini"
+            return template
+
+    if claude_key:
+        summary = _claude_summary(prompt, claude_key)
+        if summary:
+            template["summary"] = summary
+            template["composed_by"] = "claude"
+            return template
+
+    print("[composer] all LLM providers failed — using template")
+    return template
 
 
 # ── Quick test ────────────────────────────────────────────────────────────────

@@ -1,0 +1,15 @@
+.git
+.gitignore
+**/__pycache__/
+*.pyc
+*.pyo
+node_modules/
+web/node_modules/
+web/dist/
+proj/data/
+proj/models_store/growth.pkl
+.env
+.env.*
+.venv/
+venv/
+*_out.txt

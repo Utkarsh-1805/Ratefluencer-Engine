@@ -1,31 +1,32 @@
 """
-api.py — FastAPI bridge so the React frontend can run the REAL agent pipeline.
+api.py — FastAPI bridge + production web server.
 
-Runs the same logic as the Streamlit orchestrator (parse → retrieve → score →
-rank → compose), but Streamlit-free so it can be served over HTTP.
+In DEV it serves the agent pipeline over HTTP and the Vite dev server proxies
+`/api/*` here. In PROD the same process also serves the built React app
+(`web/dist`) from the same origin, so the whole product is one container.
 
-Run:
-    py -m uvicorn api:app --reload --port 8000
+Run (dev):   py -m uvicorn api:app --reload --port 8000
+Run (prod):  uvicorn api:app --host 0.0.0.0 --port 7860      # serves web/dist + /api/*
 
-Endpoints:
-    GET  /health                         -> {ok, ml_available}
-    POST /analyze   {brief, budget?, goal?}  -> full ranked shortlist + recommendation
-    POST /screen    {handle, followers, ...} -> real-account authenticity screen
+Endpoints (all under /api):
+    GET  /api/health                          -> {ok, ml_available}
+    POST /api/analyze  {brief, budget?, goal?} -> ranked shortlist + recommendation
+    POST /api/screen   {handle, followers, ...} -> real-account authenticity screen
 
 The models load once on first request (~40s warm-up), then responses are fast.
 """
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 # Load .env (GEMINI_API_KEY etc.) before anything reads the environment.
 from utils.env import load_env
 load_env()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent.brief_parser import parse_brief
@@ -35,10 +36,11 @@ from agent.composer import compose_recommendation
 
 app = FastAPI(title="Ratefluencer Copilot API")
 
-# Allow the Vite dev server (and any localhost port) to call us.
+# Allow any origin to call the API (harmless for a same-origin prod build; handy
+# if you ever split the frontend onto a different host).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # demo only; tighten for production
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -67,8 +69,11 @@ class ScreenReq(BaseModel):
     verified: bool = False
 
 
-# ── endpoints ─────────────────────────────────────────────────────────────────
-@app.get("/health")
+# ── API (everything under /api so it never collides with the static app) ───────
+api = APIRouter(prefix="/api")
+
+
+@api.get("/health")
 def health():
     try:
         from models.score_creator import ML_AVAILABLE
@@ -77,16 +82,15 @@ def health():
         return {"ok": True, "ml_available": False, "error": str(e)}
 
 
-@app.post("/analyze")
+@api.post("/analyze")
 def analyze(req: AnalyzeReq):
-    """Full pipeline: parse → retrieve → score → rank → compose."""
+    """Full pipeline: parse -> retrieve -> score -> rank -> compose."""
     parsed = parse_brief(req.brief, budget=req.budget, goal_hint=req.goal)
     weights = req.weights or parsed.get(
         "objective_weights",
         {"impact": 0.40, "authenticity": 0.35, "match": 0.15, "cost": 0.10},
     )
 
-    # score every candidate with the real models (bridge), bound to this brief
     from models.score_creator import score_creator
     candidate_ids = get_candidates(parsed)
     scores: dict[str, dict] = {}
@@ -98,8 +102,7 @@ def analyze(req: AnalyzeReq):
         except Exception as e:
             print(f"[api] score {iid} failed: {e}")
 
-    ranked = rank_candidates(scores, weights)          # mutates status + composite
-    # attach composite explicitly (ranker sets it, but be safe)
+    ranked = rank_candidates(scores, weights)
     for iid in scores:
         scores[iid].setdefault("composite", compute_composite(scores[iid], weights))
 
@@ -117,13 +120,13 @@ def analyze(req: AnalyzeReq):
     return {
         "parsed": parsed,
         "weights": weights,
-        "ranked": [scores[iid] for iid in ranked],   # full creator dicts, in order
+        "ranked": [scores[iid] for iid in ranked],
         "counts": {"recommended": n_rec, "flagged": n_flag, "total": len(ranked)},
         "recommendation": rec,
     }
 
 
-@app.post("/screen")
+@api.post("/screen")
 def screen(req: ScreenReq):
     """Authenticity screen for one real account (public numbers only)."""
     from models.screen_real import screen_account
@@ -133,7 +136,21 @@ def screen(req: ScreenReq):
     )
 
 
-@app.get("/")
-def root():
-    return {"service": "Ratefluencer Copilot API",
-            "endpoints": ["/health", "POST /analyze", "POST /screen"]}
+app.include_router(api)
+
+
+# ── serve the built React app (production) ─────────────────────────────────────
+# In a Docker/prod build, web/dist exists and is served from "/". In local dev it
+# usually doesn't (you run the Vite dev server instead), so we expose a tiny JSON
+# root so `/` still responds.
+_DIST = Path(__file__).resolve().parent / "web" / "dist"
+if _DIST.exists():
+    app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="web")
+else:
+    @app.get("/")
+    def _root():
+        return {
+            "service": "Ratefluencer Copilot API",
+            "note": "web/dist not built — run `cd web && npm run build`, or use the Vite dev server.",
+            "endpoints": ["/api/health", "POST /api/analyze", "POST /api/screen"],
+        }

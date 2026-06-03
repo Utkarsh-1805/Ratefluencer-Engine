@@ -9,10 +9,11 @@ export default defineConfig({
     // Use 127.0.0.1 (not localhost) so Node doesn't resolve to IPv6 ::1 while
     // uvicorn listens on IPv4 — that mismatch causes proxy 404 / ECONNREFUSED.
     proxy: {
+      // Pass /api/* straight through — the backend serves routes under /api, the
+      // same as production (no path rewrite).
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api/, ''),
       },
     },
   },

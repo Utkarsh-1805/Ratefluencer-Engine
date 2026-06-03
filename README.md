@@ -119,43 +119,88 @@ LLM-written campaign summaries; without it, a built-in template is used.
 ## 🏗️ Architecture
 
 **Deterministic ML in the middle, LLM only at the edges.** Every score is
-reproducible (global seed = 42).
+reproducible (global seed = 42). Two front-ends share one pipeline — a responsive
+React/Vite SPA (`web/`) over a FastAPI bridge (`api.py`), and a Streamlit app
+(`app.py`) — and the Data + ML layer is vendored in-repo at `proj/`, reached through
+a single bridge: `models/score_creator.py`.
+
+### System architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│  Layer 4 · UI         Streamlit — brief → ranked shortlist (REVEAL)   │
-│                                    → creator detail → export plan      │
-│       ▲                                                                │
-│  Layer 3 · Agent      parse brief → retrieve → score → rank → compose │
-│       ▲                                          │                     │
-│       │                                          └──► LLM (Gemini /    │
-│       │                                               offline template)│
-│  ═══ models/score_creator.py  ── THE BRIDGE ══════════════════════════│
-│       ▼                                                                │
-│  Layer 2 · Models     Authenticity · True-Impact · Brand-Match ·      │
-│                        Growth · SHAP            (sibling ML repo)      │
-│       ▲                                                                │
-│  Layer 1 · Data       synthetic generator → 17 features → FAISS index │
-└──────────────────────────────────────────────────────────────────────┘
+LAYER 4 — PRESENTATION
+   React + Vite SPA (web/, responsive)   ·   Streamlit app (app.py, backup)
+        |  HTTP  /api
+        v
+LAYER 3 — API / AGENT
+   FastAPI bridge (api.py)  ->  Orchestrator
+   parse -> retrieve -> score -> rank -> compose  ---->  LLM rationale
+                                                         (Gemini / offline template)
+        |  models/score_creator.py   <- THE BRIDGE
+        v
+LAYER 2 — INTELLIGENCE   (proj/)
+   True-Impact . Authenticity . Brand-Match . Growth . SHAP
+   LightGBM . IsolationForest . MiniLM embeddings . SHAP TreeExplainer
+        |
+        v
+LAYER 1 — DATA
+   SQLite  (creators . features . authenticity)   +   FAISS vector index
+   ^ built by the benchmark-calibrated, fraud-injected synthetic generator
 ```
 
-**The agent pipeline:**
+### AI workflow
 
 ```
-  Brief ─►Parse─►Retrieve─►Score (5 models/creator)─►Rank─►Compose─► Shortlist + Plan
-                              │                          │
-            Authenticity ─────┤            weighted composite + fraud
-            True-Impact ──────┤            guardrail (flagged → bottom)
-            Brand-Match ──────┤
-            Growth ───────────┤
-            SHAP drivers ─────┘
+   Brief (plain English)
+   "DTC skincare . women 22-35 . India . Rs 3,00,000 . drive sales"
+        |
+        v
+   1. PARSE       LLM -> category . audience . geo . budget . goal . tone
+        |
+        v
+   2. RETRIEVE    embed brief -> FAISS -> top-K candidate creators
+        |
+        v
+   3. SCORE       run 5 models on EACH candidate:
+                    True-Impact    ROI / success (fraud-adjusted)
+                    Authenticity   bot % . pods . spikes
+                    Brand-Match    fit to this brief
+                    Growth         momentum
+                    SHAP           per-score drivers (the "why")
+        |
+        v
+   4. RANK        weighted composite  +  fraud guardrail
+                  (flagged creators sink to the bottom)
+        |
+        v
+   5. COMPOSE     budget split + rationale (LLM, or offline template)
+        |
+        v
+   Output: fraud-adjusted, ROI-ranked, EXPLAINABLE shortlist + export plan
 ```
 
-This repo (**Engine** — agent + UI) connects to the sibling **Data + ML** repo
-(`ratefluencer-copilot/proj`) through a single bridge: `models/score_creator.py`.
-It ships **two front-ends** over the *same* pipeline — a Streamlit app (`app.py`)
-and a responsive React/Vite SPA (`web/`) that calls it through a thin FastAPI
-bridge (`api.py`).
+### Data flow
+
+```
+BUILD TIME  (one-time . python models/prepare_demo.py)
+   synthetic generator ---> creators + labels (ROI, success)
+                            + planted reveal (gem & fraud)
+        |
+        +--> feature engineering (17 features, fraud-adjusted) ---> SQLite
+        +--> MiniLM embeddings ------------------------------------> FAISS index
+        +--> authenticity engine (bot %, flags) ------------------> SQLite
+
+QUERY TIME  (per brief)
+   brief -> parse -> embed -> FAISS top-K
+        |
+        v
+   load features (SQLite) -> 5 models -> scores + SHAP drivers
+        |
+        v
+   rank (composite + fraud guardrail) -> recommendation
+        |
+        v
+   shortlist + budget plan -> UI -> export (.txt)
+```
 
 ---
 
@@ -195,7 +240,7 @@ outcome labels — because no one publishes conversion data."***
 ## 📁 Project structure
 
 ```
-Ratefluencer-Engine-main/
+Ratefluencer-Engine/
 ├── app.py                # Streamlit entry point + design system
 ├── api.py                # FastAPI bridge — serves the pipeline to the React UI
 ├── ui/                   # 5 screens: brief → working → shortlist → detail → export
@@ -203,15 +248,15 @@ Ratefluencer-Engine-main/
 ├── web/                  # React + Vite SPA — same 5 screens, responsive (calls api.py)
 ├── agent/                # orchestrator · brief_parser · retriever · ranker · composer
 ├── models/               # ⭐ ML BRIDGE: score_creator · prepare_demo · screen_real
+├── proj/                 # vendored Data + ML layer: config + src/{store,data,models} + trained model
 ├── utils/                # session · env loader · ui_kit · ranking
-└── data/                 # built by prepare_demo (gitignored) + real_accounts.csv
-
-ratefluencer-copilot/proj/   # sibling Data+ML repo: src/{store,data,models}, models_store/
+└── data/                 # built by prepare_demo (gitignored)
 ```
 
-> ℹ️ Running this app needs the sibling **`ratefluencer-copilot/proj`** repo
-> beside it (the ML layer the bridge imports). Without it, the UI falls back to
-> demo data.
+> ℹ️ The **Data + ML layer is vendored in `proj/`** (source + trained model), so a
+> fresh clone is self-contained. Run `py models/prepare_demo.py` once to build the
+> demo data, then launch. *(Override its location with the `RATEFLUENCER_PROJ` env
+> var if you keep the ML layer elsewhere.)*
 
 ---
 

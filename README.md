@@ -6,6 +6,8 @@
 
 *Ratefluencer AI Hackathon 2026 · Track 1 — AI Influencer Intelligence Engine*
 
+[![Live Demo](https://img.shields.io/badge/▶_Live_Demo-Hugging_Face_Spaces-FF4B4B?style=for-the-badge&logo=huggingface&logoColor=white)](https://utkarsh805-ratefluencer-copilot.hf.space)
+
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![LightGBM](https://img.shields.io/badge/LightGBM-gradient_boosting-02569B)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-IsolationForest-F7931E?logo=scikitlearn&logoColor=white)
@@ -18,6 +20,9 @@
 
 **Type a campaign brief in plain English → get a fraud-adjusted, ROI-ranked,
 explainable shortlist of creators + an exportable plan.**
+
+### ▶ Live demo — **[utkarsh805-ratefluencer-copilot.hf.space](https://utkarsh805-ratefluencer-copilot.hf.space)**
+<sub>(first analysis warms the models for ~40s, then it's instant)</sub>
 
 </div>
 
@@ -78,6 +83,8 @@ Follower count, inverted — with proof. *That's the reveal.*
 ---
 
 ## ⚡ Quick start
+
+> **Try it live (no setup):** **[utkarsh805-ratefluencer-copilot.hf.space](https://utkarsh805-ratefluencer-copilot.hf.space)** — or run it locally:
 
 ```powershell
 # 1 · install dependencies
